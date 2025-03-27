@@ -1,0 +1,8 @@
+/.vscode
+.DS_Store
+*.elf
+*.bin
+apps/*/build/
+**/target/
+!/vendor/**/Cargo.lock
+/.axconfig.*
