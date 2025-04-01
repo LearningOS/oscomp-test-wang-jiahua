@@ -35,4 +35,5 @@ github的CI测试可能会有脚本执行的权限问题，如果添加`chmod +x
 - Github 上的CI评测机在初次运行时需要编译 `qemu`，可能需要花费一些时间，请耐心等待
 - 如果在实践中碰到问题，请在本repo的 `issues` 栏中发帖子
 - 如果有进一步的改进，请给本repo提 `Pull requests`
+- 此外，评测时您需要在您想要测试测例类型的前后输出例如＂#### OS COMP TEST GROUP START basic-musl ####＂和＂#### OS COMP TEST GROUP END basic-musl ####＂，这样您才能获得相应评测分数。
 
