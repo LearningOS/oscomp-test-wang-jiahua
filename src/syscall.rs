@@ -1,63 +1,32 @@
-mod fs;
-mod mm;
-mod signal;
-mod sys;
-mod task;
-mod utils;
-
-use crate::task::{time_stat_from_kernel_to_user, time_stat_from_user_to_kernel};
 use axerrno::{LinuxError, LinuxResult};
 use axhal::{
     arch::TrapFrame,
     trap::{SYSCALL, register_trap_handler},
 };
+use starry_api::*;
+use starry_core::task::{time_stat_from_kernel_to_user, time_stat_from_user_to_kernel};
 use syscalls::Sysno;
-
-use self::fs::*;
-use self::mm::*;
-use self::signal::*;
-use self::sys::*;
-use self::task::*;
-use self::utils::*;
-
-macro_rules! syscall_instrument {(
-    $( #[$attr:meta] )*
-    $pub:vis
-    fn $fname:ident (
-        $( $arg_name:ident : $ArgTy:ty ),* $(,)?
-    ) -> $RetTy:ty
-    $body:block
-) => (
-    $( #[$attr] )*
-    #[allow(unused_parens)]
-    $pub
-    fn $fname (
-        $( $arg_name : $ArgTy ),*
-    ) -> $RetTy
-    {
-        /// Re-emit the original function definition, but as a scoped helper
-        $( #[$attr] )*
-        fn __original_func__ (
-            $($arg_name: $ArgTy),*
-        ) -> $RetTy
-        $body
-
-        let res = __original_func__($($arg_name),*);
-        match res {
-            Ok(_) | Err(axerrno::LinuxError::EAGAIN) => debug!(concat!(stringify!($fname), " => {:?}"),  res),
-            Err(_) => info!(concat!(stringify!($fname), " => {:?}"), res),
-        }
-        res
-    }
-)}
-pub(crate) use syscall_instrument;
 
 #[register_trap_handler(SYSCALL)]
 fn handle_syscall(tf: &TrapFrame, syscall_num: usize) -> isize {
     info!("Syscall {:?}", Sysno::from(syscall_num as u32));
     time_stat_from_user_to_kernel();
     let result: LinuxResult<isize> = match Sysno::from(syscall_num as u32) {
+        #[cfg(target_arch = "x86_64")]
+        Sysno::access => sys_access(tf.arg0().into(), tf.arg1() as _),
+        Sysno::faccessat => sys_faccessat(
+            tf.arg0() as _,
+            tf.arg1().into(),
+            tf.arg2() as _,
+            tf.arg3() as _,
+        ),
+        Sysno::lseek => sys_lseek(tf.arg0() as _, tf.arg1() as _, tf.arg2() as _),
         Sysno::read => sys_read(tf.arg0() as _, tf.arg1().into(), tf.arg2() as _),
+        Sysno::readv => sys_readv(tf.arg0() as _, tf.arg1().into(), tf.arg2() as _),
+        Sysno::pread64 => sys_pread64(tf.arg0() as _, tf.arg1().into(), tf.arg2() as _, tf.arg3() as _),
+        #[cfg(target_arch = "x86_64")]
+        Sysno::readlink => sys_readlink(tf.arg0().into(), tf.arg1().into(), tf.arg2() as _),
+        Sysno::readlinkat => sys_readlinkat(tf.arg0() as _, tf.arg1().into(), tf.arg2().into(), tf.arg3() as _),
         Sysno::write => sys_write(tf.arg0() as _, tf.arg1().into(), tf.arg2() as _),
         Sysno::mmap => sys_mmap(
             tf.arg0().into(),
@@ -72,6 +41,7 @@ fn handle_syscall(tf: &TrapFrame, syscall_num: usize) -> isize {
         Sysno::sched_yield => sys_sched_yield(),
         Sysno::nanosleep => sys_nanosleep(tf.arg0().into(), tf.arg1().into()),
         Sysno::getpid => sys_getpid(),
+        Sysno::gettid => sys_gettid(),
         Sysno::getppid => sys_getppid(),
         Sysno::exit => sys_exit(tf.arg0() as _),
         Sysno::gettimeofday => sys_get_time_of_day(tf.arg0().into()),
@@ -86,6 +56,8 @@ fn handle_syscall(tf: &TrapFrame, syscall_num: usize) -> isize {
             tf.arg3() as _,
             tf.arg4() as _,
         ),
+        #[cfg(target_arch = "x86_64")]
+        Sysno::fork => sys_clone(17, 0, 0, 0, 0),
         Sysno::wait4 => sys_wait4(tf.arg0() as _, tf.arg1().into(), tf.arg2() as _),
         Sysno::pipe2 => sys_pipe2(tf.arg0().into()),
         Sysno::close => sys_close(tf.arg0() as _),
@@ -108,9 +80,15 @@ fn handle_syscall(tf: &TrapFrame, syscall_num: usize) -> isize {
             tf.arg3().into(),
             tf.arg4() as _,
         ),
+        #[cfg(target_arch = "x86_64")]
+        Sysno::unlink => sys_unlink(tf.arg0().into()),
         Sysno::unlinkat => sys_unlinkat(tf.arg0() as _, tf.arg1().into(), tf.arg2() as _),
         Sysno::uname => sys_uname(tf.arg0().into()),
         Sysno::fstat => sys_fstat(tf.arg0() as _, tf.arg1().into()),
+        #[cfg(target_arch = "x86_64")]
+        Sysno::stat => sys_stat(tf.arg0().into(), tf.arg1().into()),
+        #[cfg(target_arch = "x86_64")]
+        Sysno::lstat => sys_lstat(tf.arg0().into(), tf.arg1().into()),
         Sysno::mount => sys_mount(
             tf.arg0().into(),
             tf.arg1().into(),
@@ -140,9 +118,16 @@ fn handle_syscall(tf: &TrapFrame, syscall_num: usize) -> isize {
             tf.arg3() as _,
             tf.arg4().into(),
         ),
+        Sysno::statfs => sys_statfs(tf.arg0().into(), tf.arg1().into()),
         Sysno::munmap => sys_munmap(tf.arg0().into(), tf.arg1() as _),
         Sysno::mprotect => sys_mprotect(tf.arg0().into(), tf.arg1() as _, tf.arg2() as _),
         Sysno::times => sys_times(tf.arg0().into()),
+        Sysno::utimensat => sys_utimensat(
+            tf.arg0() as _,
+            tf.arg1().into(),
+            tf.arg2().into(),
+            tf.arg3() as _,
+        ),
         Sysno::brk => sys_brk(tf.arg0() as _),
         #[cfg(target_arch = "x86_64")]
         Sysno::arch_prctl => sys_arch_prctl(tf.arg0() as _, tf.arg1().into()),
@@ -150,6 +135,8 @@ fn handle_syscall(tf: &TrapFrame, syscall_num: usize) -> isize {
         Sysno::clock_gettime => sys_clock_gettime(tf.arg0() as _, tf.arg1().into()),
         Sysno::exit_group => sys_exit_group(tf.arg0() as _),
         Sysno::getuid => sys_getuid(),
+        Sysno::geteuid => sys_geteuid(),
+        Sysno::getegid => sys_getegid(),
         Sysno::rt_sigprocmask => sys_rt_sigprocmask(
             tf.arg0() as _,
             tf.arg1().into(),
@@ -161,6 +148,28 @@ fn handle_syscall(tf: &TrapFrame, syscall_num: usize) -> isize {
             tf.arg1().into(),
             tf.arg2().into(),
             tf.arg3() as _,
+        ),
+        Sysno::rt_sigtimedwait => sys_rt_sigtimedwait(
+            tf.arg0().into(),
+            tf.arg1().into(),
+            tf.arg2().into()
+        ),
+        Sysno::prlimit64 => sys_prlimit64(
+            tf.arg0() as _,
+            tf.arg1() as _,
+            tf.arg2().into(),
+            tf.arg3().into(),
+        ),
+        Sysno::set_robust_list => sys_set_robust_list(tf.arg0().into(), tf.arg1().into()),
+        Sysno::getrandom => sys_getrandom(tf.arg0().into(), tf.arg1() as _, tf.arg2() as _),
+        Sysno::rseq => sys_rseq(tf.arg0().into(), tf.arg1() as _, tf.arg2() as _, tf.arg3().into()),
+        Sysno::futex => sys_futex(
+            tf.arg0().into(),
+            tf.arg1() as _,
+            tf.arg2() as _,
+            tf.arg3().into(),
+            tf.arg4().into(),
+            tf.arg5() as _,
         ),
         _ => {
             warn!("Unimplemented syscall: {}", syscall_num);
