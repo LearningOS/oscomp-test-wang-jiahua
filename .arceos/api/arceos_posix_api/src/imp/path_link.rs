@@ -5,7 +5,7 @@ use core::ops::Deref;
 use spin::RwLock;
 
 use alloc::string::{String, ToString};
-use axerrno::{AxError, AxResult};
+use axerrno::{AxError, LinuxError, AxResult};
 use axfs::api::{canonicalize, current_dir};
 
 /// 一个规范化的文件路径表示
@@ -30,7 +30,7 @@ impl FilePath {
             "canonical path should start with /"
         );
 
-        Ok(Self(HARDLINK_MANAGER.real_path(&new_path)))
+        Ok(Self(HARDLINK_MANAGER.real_path(&new_path).clone()))
     }
 
     /// 返回底层路径的字符串切片
@@ -340,10 +340,19 @@ fn handle_empty_path(dir_fd: isize) -> AxResult<String> {
     if dir_fd == AT_FDCWD {
         return Ok(String::from("."));
     }
-
-    super::fs::Directory::from_fd(dir_fd as i32)
-        .map(|dir| dir.path().to_string())
-        .map_err(|_| AxError::NotFound)
+    match super::fs::Directory::from_fd(dir_fd as i32) {
+        Ok(dir) => {
+            Ok(dir.path().to_string())
+        }
+        Err(LinuxError::EINVAL) => {
+            super::fs::File::from_fd(dir_fd as i32)
+                .map(|file| file.path().to_string())
+                .map_err(|_| AxError::NotFound)
+        }
+        Err(_) => {
+            return Err(AxError::NotFound);
+        }
+    }
 }
 
 fn handle_relative_path(dir_fd: isize, path: &str) -> AxResult<String> {

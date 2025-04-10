@@ -1,3 +1,5 @@
+/musl/busybox echo #### OS COMP TEST GROUP START basic-glibc ####
+/musl/busybox echo #### OS COMP TEST GROUP START basic-musl ####
 /musl/basic/brk
 /musl/basic/chdir
 /musl/basic/close
@@ -30,6 +32,10 @@
 /musl/basic/waitpid
 /musl/basic/write
 /musl/basic/yield
+/musl/busybox echo #### OS COMP TEST GROUP END basic-musl ####
+/musl/busybox echo #### OS COMP TEST GROUP END basic-glibc ####
+/musl/busybox echo #### OS COMP TEST GROUP START libctest-glibc ####
+/musl/busybox echo #### OS COMP TEST GROUP START libctest-musl ####
 /musl/runtest.exe -w entry-static.exe argv
 /musl/runtest.exe -w entry-static.exe basename
 /musl/runtest.exe -w entry-static.exe clocale_mbfuncs
@@ -52,6 +58,7 @@
 /musl/runtest.exe -w entry-static.exe snprintf
 /musl/runtest.exe -w entry-static.exe sscanf
 /musl/runtest.exe -w entry-static.exe sscanf_long
+/musl/runtest.exe -w entry-static.exe stat
 /musl/runtest.exe -w entry-static.exe strftime
 /musl/runtest.exe -w entry-static.exe string
 /musl/runtest.exe -w entry-static.exe string_memcpy
@@ -78,7 +85,6 @@
 /musl/runtest.exe -w entry-static.exe dn_expand_ptr_0
 /musl/runtest.exe -w entry-static.exe fflush_exit
 /musl/runtest.exe -w entry-static.exe fgets_eof
-/musl/runtest.exe -w entry-static.exe fpclassify_invalid_ld80
 /musl/runtest.exe -w entry-static.exe ftello_unflushed_append
 /musl/runtest.exe -w entry-static.exe getpwnam_r_crash
 /musl/runtest.exe -w entry-static.exe getpwnam_r_errno
@@ -140,6 +146,7 @@
 /musl/runtest.exe -w entry-dynamic.exe snprintf
 /musl/runtest.exe -w entry-dynamic.exe sscanf
 /musl/runtest.exe -w entry-dynamic.exe sscanf_long
+/musl/runtest.exe -w entry-dynamic.exe stat
 /musl/runtest.exe -w entry-dynamic.exe strftime
 /musl/runtest.exe -w entry-dynamic.exe string
 /musl/runtest.exe -w entry-dynamic.exe string_memcpy
@@ -165,7 +172,6 @@
 /musl/runtest.exe -w entry-dynamic.exe dn_expand_ptr_0
 /musl/runtest.exe -w entry-dynamic.exe fflush_exit
 /musl/runtest.exe -w entry-dynamic.exe fgets_eof
-/musl/runtest.exe -w entry-dynamic.exe fpclassify_invalid_ld80
 /musl/runtest.exe -w entry-dynamic.exe ftello_unflushed_append
 /musl/runtest.exe -w entry-dynamic.exe getpwnam_r_crash
 /musl/runtest.exe -w entry-dynamic.exe getpwnam_r_errno
@@ -205,3 +211,10 @@
 /musl/runtest.exe -w entry-dynamic.exe uselocale_0
 /musl/runtest.exe -w entry-dynamic.exe wcsncpy_read_overflow
 /musl/runtest.exe -w entry-dynamic.exe wcsstr_false_negative
+/musl/busybox echo #### OS COMP TEST GROUP END libctest-musl ####
+/musl/busybox echo #### OS COMP TEST GROUP END libctest-glibc ####
+/musl/busybox echo #### OS COMP TEST GROUP START busybox-musl ####
+/musl/busybox echo #### OS COMP TEST GROUP START busybox-glibc ####
+/musl/busybox sh /musl/busybox_testcode.sh
+/musl/busybox echo #### OS COMP TEST GROUP END busybox-glibc ####
+/musl/busybox echo #### OS COMP TEST GROUP END busybox-musl ####
