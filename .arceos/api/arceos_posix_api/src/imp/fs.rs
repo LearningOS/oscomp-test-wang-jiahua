@@ -2,7 +2,7 @@ use alloc::string::{String, ToString};
 use alloc::sync::Arc;
 use core::ffi::{c_char, c_int};
 
-use axerrno::{AxError, LinuxError, LinuxResult};
+use axerrno::{LinuxError, LinuxResult};
 use axfs::fops::OpenOptions;
 use axio::{PollState, SeekFrom};
 use axsync::Mutex;
@@ -29,7 +29,7 @@ impl File {
         super::fd_ops::add_file_like(Arc::new(self))
     }
 
-    pub fn from_fd(fd: c_int) -> LinuxResult<Arc<Self>> {
+    fn from_fd(fd: c_int) -> LinuxResult<Arc<Self>> {
         let f = super::fd_ops::get_file_like(fd)?;
         f.into_any()
             .downcast::<Self>()
@@ -239,16 +239,8 @@ pub unsafe fn sys_stat(path: *const c_char, buf: *mut ctypes::stat) -> c_int {
         }
         let mut options = OpenOptions::new();
         options.read(true);
-        let st = match axfs::fops::File::open(path?, &options) {
-            Ok(file) => {
-                File::new(file, path?.to_string()).stat()?
-            }
-            Err(AxError::IsADirectory) => {
-                let dir = axfs::fops::Directory::open_dir(path?, &options)?;
-                Directory::new(dir, path?.to_string()).stat()?
-            }
-            Err(e) => return Err(e.into()),
-        };
+        let file = axfs::fops::File::open(path?, &options)?;
+        let st = File::new(file, path?.to_string()).stat()?;
         unsafe { *buf = st };
         Ok(0)
     })
@@ -360,21 +352,7 @@ impl FileLike for Directory {
     }
 
     fn stat(&self) -> LinuxResult<ctypes::stat> {
-        let metadata = self.inner.lock().get_attr()?;
-        let ty = metadata.file_type() as u8;
-        let perm = metadata.perm().bits() as u32;
-        let st_mode = ((ty as u32) << 12) | perm;
-        Ok(ctypes::stat {
-            st_ino: 1,
-            st_nlink: 1,
-            st_mode,
-            st_uid: 1000,
-            st_gid: 1000,
-            st_size: metadata.size() as _,
-            st_blocks: metadata.blocks() as _,
-            st_blksize: 512,
-            ..Default::default()
-        })
+        Err(LinuxError::EBADF)
     }
 
     fn into_any(self: Arc<Self>) -> Arc<dyn core::any::Any + Send + Sync> {
