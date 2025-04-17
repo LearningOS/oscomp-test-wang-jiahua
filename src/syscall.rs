@@ -3,7 +3,6 @@ use axhal::{
     arch::TrapFrame,
     trap::{SYSCALL, register_trap_handler},
 };
-use linux_raw_sys::general::SIGSYS;
 use starry_api::*;
 use starry_core::task::{time_stat_from_kernel_to_user, time_stat_from_user_to_kernel};
 use syscalls::Sysno;
@@ -147,7 +146,7 @@ fn handle_syscall(tf: &mut TrapFrame, syscall_num: usize) -> isize {
         ),
         #[cfg(target_arch = "x86_64")]
         Sysno::arch_prctl => sys_arch_prctl(tf.arg0() as _, tf.arg1().into()),
-        Sysno::set_tid_address => sys_set_tid_address(tf.arg0().into()),
+        Sysno::set_tid_address => sys_set_tid_address(tf.arg0() as _),
         Sysno::clock_gettime => sys_clock_gettime(tf.arg0() as _, tf.arg1().into()),
         Sysno::getuid => sys_getuid(),
         Sysno::geteuid => sys_geteuid(),
@@ -175,11 +174,36 @@ fn handle_syscall(tf: &mut TrapFrame, syscall_num: usize) -> isize {
         Sysno::rt_sigpending => sys_rt_sigpending(tf.arg0().into(), tf.arg1() as _),
         Sysno::rt_sigreturn => sys_rt_sigreturn(tf),
         Sysno::kill => sys_kill(tf.arg0() as _, tf.arg1() as _),
+        Sysno::tkill => sys_tkill(tf.arg0() as _, tf.arg1() as _),
         Sysno::tgkill => sys_tgkill(tf.arg0() as _, tf.arg1() as _, tf.arg2() as _),
-        Sysno::futex => {
-            warn!("preventing pthread from blocking testing");
-            do_exit(SIGSYS as _, true);
-        }
+        Sysno::sigaltstack => sys_sigaltstack(tf.arg0().into(), tf.arg1().into()),
+        Sysno::futex => sys_futex(
+            tf.arg0().into(),
+            tf.arg1() as _,
+            tf.arg2() as _,
+            tf.arg3().into(),
+            tf.arg4().into(),
+            tf.arg5() as _,
+        ),
+        #[cfg(target_arch = "x86_64")]
+        Sysno::access => sys_access(tf.arg0().into(), tf.arg1() as _),
+        Sysno::faccessat => sys_faccessat(
+            tf.arg0() as _,
+            tf.arg1().into(),
+            tf.arg2() as _,
+            tf.arg3() as _,
+        ),
+        Sysno::utimensat => Ok(0),
+        Sysno::socket => sys_socket(tf.arg0() as _, tf.arg1() as _, tf.arg2() as _),
+        Sysno::bind => sys_bind(tf.arg0() as _, tf.arg1() as _, tf.arg2() as _),
+        Sysno::getsockname => sys_getsockname(tf.arg0() as _, tf.arg1() as _, tf.arg2() as _),
+        Sysno::setsockopt => sys_setsockopt(tf.arg0() as _, tf.arg1() as _, tf.arg2() as _, tf.arg3() as _, tf.arg4() as _),
+        Sysno::sendto => sys_sendto(tf.arg0() as _, tf.arg1() as _, tf.arg2() as _, tf.arg3() as _, tf.arg4() as _, tf.arg5() as _),
+        Sysno::recvfrom => sys_recvfrom(tf.arg0() as _, tf.arg1() as _, tf.arg2() as _, tf.arg3() as _, tf.arg4() as _, tf.arg5() as _),
+        Sysno::shutdown => sys_shutdown(tf.arg0() as _, tf.arg1() as _),
+        Sysno::listen => sys_listen(tf.arg0() as _, tf.arg1() as _),
+        Sysno::accept => sys_accept(tf.arg0() as _, tf.arg1() as _, tf.arg2() as _),
+        Sysno::connect => sys_connect(tf.arg0() as _, tf.arg1() as _, tf.arg2() as _),
         sysno => {
             warn!("Unimplemented syscall: {}", sysno);
             Err(LinuxError::ENOSYS)

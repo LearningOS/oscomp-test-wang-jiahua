@@ -1,3 +1,5 @@
+use core::sync::atomic::Ordering;
+
 use alloc::sync::Arc;
 use axerrno::{LinuxError, LinuxResult};
 use axfs::{CURRENT_DIR, CURRENT_DIR_PATH};
@@ -17,7 +19,9 @@ use starry_core::{
     task::{ProcessData, TaskExt, ThreadData, add_thread_to_table, new_user_task},
 };
 
-use crate::fd::FD_TABLE;
+use crate::{fd::FD_TABLE, ptr::UserPtr};
+
+use super::on_task_enter;
 
 bitflags! {
     /// Options for use with [`sys_clone`].
@@ -85,27 +89,27 @@ bitflags! {
 pub fn sys_clone(
     flags: u32,
     stack: usize,
-    _ptid: usize,
-    _tls: usize,
-    _ctid: usize,
+    ptid: usize,
+    arg3: usize,
+    arg4: usize,
 ) -> LinuxResult<isize> {
+    let (tls, ctid) = if cfg!(any(target_arch = "x86_64", target_arch = "loongarch64")) {
+        (arg4, arg3)
+    } else {
+        (arg3, arg4)
+    };
+
     const FLAG_MASK: u32 = 0xff;
     let _exit_signal = flags & FLAG_MASK;
     let flags = CloneFlags::from_bits_truncate(flags & !FLAG_MASK);
 
     info!(
-        "sys_clone <= flags: {:?}, exit_signal: {}, stack: {:#x}",
-        flags, _exit_signal, stack
+        "sys_clone <= flags: {:?}, exit_signal: {}, stack: {:#x}, ptid: {:#x}, ctid: {:#x}, tls: {:#x}",
+        flags, _exit_signal, stack, ptid, ctid, tls
     );
 
     let curr = current();
-    let mut new_task = new_user_task(curr.name());
-
-    // TODO: check SETTLS
-    #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
-    new_task
-        .ctx_mut()
-        .set_tls(axhal::arch::read_thread_pointer().into());
+    let mut new_task = new_user_task(curr.name(), Some(on_task_enter));
 
     let trap_frame = read_trapframe_from_kstack(curr.get_kernel_stack_top().unwrap());
     let mut new_uctx = UspaceContext::from(&trap_frame);
@@ -114,11 +118,28 @@ pub fn sys_clone(
     }
     new_uctx.set_retval(0);
 
+    if flags.contains(CloneFlags::SETTLS) {
+        let _ = new_uctx.try_set_tls(tls);
+        new_task.ctx_mut().set_tls(tls.into());
+    } else {
+        new_task
+            .ctx_mut()
+            .set_tls(axhal::arch::read_thread_pointer().into());
+    }
+
     let tid = new_task.id().as_u64() as Pid;
     let process = if flags.contains(CloneFlags::THREAD) {
         if !flags.contains(CloneFlags::VM | CloneFlags::SIGHAND) {
             return Err(LinuxError::EINVAL);
         }
+        new_task.ctx_mut().set_page_table_root(
+            curr.task_ext()
+                .process_data()
+                .aspace
+                .lock()
+                .page_table_root(),
+        );
+
         curr.task_ext().thread.process()
     } else {
         // create a new process
@@ -180,6 +201,22 @@ pub fn sys_clone(
 
     let thread = process.new_thread(tid).data(ThreadData::new()).build();
     add_thread_to_table(&thread);
+
+    if flags.contains(CloneFlags::PARENT_SETTID) {
+        let ptr: UserPtr<Pid> = ptid.into();
+        if let Ok(tid) = ptr.get_as_mut() {
+            *tid = thread.tid();
+        }
+    }
+    if flags.contains(CloneFlags::CHILD_SETTID) {
+        let thr_data: &ThreadData = thread.data().unwrap();
+        thr_data.set_child_tid.store(ctid, Ordering::Relaxed);
+    }
+    if flags.contains(CloneFlags::CHILD_CLEARTID) {
+        let thr_data: &ThreadData = thread.data().unwrap();
+        thr_data.clear_child_tid.store(ctid, Ordering::Relaxed);
+    }
+
     new_task.init_task_ext(TaskExt::new(new_uctx, thread));
     axtask::spawn_task(new_task);
 

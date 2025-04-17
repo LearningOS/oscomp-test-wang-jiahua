@@ -1,11 +1,13 @@
 use core::{
     alloc::Layout,
+    array,
     cell::{Cell, RefCell},
     hint::black_box,
     sync::atomic::{AtomicUsize, Ordering},
 };
 
 use alloc::{
+    collections::btree_map::BTreeMap,
     string::String,
     sync::{Arc, Weak},
     vec::Vec,
@@ -20,19 +22,19 @@ use axns::{AxNamespace, AxNamespaceIf};
 use axprocess::{Pid, Process, ProcessGroup, Session, Thread};
 use axsignal::{
     PendingSignals,
-    ctypes::{SignalAction, SignalSet},
+    ctypes::{SignalAction, SignalSet, SignalStack},
 };
 use axsync::{Mutex, spin::SpinNoIrq};
 use axtask::{TaskExtRef, TaskInner, WaitQueue, current};
 use memory_addr::VirtAddrRange;
-use spin::{Once, RwLock};
+use spin::{Once, rwlock::RwLock};
 use weak_map::WeakMap;
 
 use crate::{resources::Rlimits, time::TimeStat};
 
-pub fn new_user_task(name: &str) -> TaskInner {
+pub fn new_user_task(name: &str, on_enter: Option<fn()>) -> TaskInner {
     TaskInner::new(
-        || {
+        move || {
             let curr = axtask::current();
             let kstack_top = curr.kernel_stack_top().unwrap();
             let uctx = curr.task_ext().uctx.take().unwrap();
@@ -43,6 +45,10 @@ pub fn new_user_task(name: &str) -> TaskInner {
                 uctx.sp(),
                 kstack_top,
             );
+
+            if let Some(on_enter) = on_enter {
+                on_enter();
+            }
             unsafe { uctx.enter_uspace(kstack_top) }
         },
         name.into(),
@@ -124,11 +130,15 @@ pub struct ThreadData {
     ///
     /// When the thread exits, the kernel clears the word at this address if it is not NULL.
     pub clear_child_tid: AtomicUsize,
+    /// The set thread tid field
+    pub set_child_tid: AtomicUsize,
 
     /// The pending signals
     pub pending: SpinNoIrq<PendingSignals>,
     /// The set of signals currently blocked from delivery.
     pub blocked: Mutex<SignalSet>,
+    /// The stack used by signal handlers
+    pub signal_stack: Mutex<SignalStack>,
 }
 
 impl ThreadData {
@@ -136,18 +146,11 @@ impl ThreadData {
     pub fn new() -> Self {
         Self {
             clear_child_tid: AtomicUsize::new(0),
+            set_child_tid: AtomicUsize::new(0),
             pending: SpinNoIrq::new(PendingSignals::new()),
             blocked: Mutex::default(),
+            signal_stack: Mutex::default(),
         }
-    }
-
-    pub fn clear_child_tid(&self) -> usize {
-        self.clear_child_tid.load(Ordering::Relaxed)
-    }
-
-    pub fn set_clear_child_tid(&self, clear_child_tid: usize) {
-        self.clear_child_tid
-            .store(clear_child_tid, Ordering::Relaxed);
     }
 }
 
@@ -169,7 +172,7 @@ pub struct ProcessData {
     /// The process-level shared pending signals
     pub pending: SpinNoIrq<PendingSignals>,
     /// The signal actions
-    pub signal_actions: Mutex<[SignalAction; 32]>,
+    pub signal_actions: Mutex<[SignalAction; 64]>,
     /// The wait queue for signal. Used by `rt_sigtimedwait`, etc.
     ///
     /// Note that this is shared by all threads in the process, so false wakeups
@@ -177,6 +180,9 @@ pub struct ProcessData {
     pub signal_wq: WaitQueue,
     /// The wait queue for child exits.
     pub child_exit_wq: WaitQueue,
+
+    /// The futex table.
+    pub futex_table: Mutex<BTreeMap<usize, Arc<WaitQueue>>>,
 }
 
 impl ProcessData {
@@ -191,9 +197,11 @@ impl ProcessData {
             rlim: RwLock::default(),
 
             pending: SpinNoIrq::new(PendingSignals::new()),
-            signal_actions: Mutex::default(),
+            signal_actions: Mutex::new(array::from_fn(|_| SignalAction::default())),
             signal_wq: WaitQueue::new(),
             child_exit_wq: WaitQueue::new(),
+
+            futex_table: Mutex::default(),
         }
     }
 

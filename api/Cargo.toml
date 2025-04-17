@@ -32,10 +32,12 @@ spin.workspace = true
 starry-core.workspace = true
 
 axio = "0.1.1"
+axfs_vfs = "0.1.1"
 ctor_bare = "0.2.1"
 flatten_objects = "0.2.3"
 num_enum = { version = "0.7", default-features = false }
 linkme.workspace = true
+arceos_posix_api = { path = "../.arceos/api/arceos_posix_api", features = ["uspace", "smp", "irq", "fs", "multitask", "net", "pipe", "select", "epoll"] }
 
 [target.'cfg(target_arch = "x86_64")'.dependencies]
 x86 = "0.52"
