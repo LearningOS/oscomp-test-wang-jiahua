@@ -1,4 +1,4 @@
-use core::ffi::c_int;
+use core::ffi::{c_char, c_int};
 
 use alloc::vec;
 use axerrno::{LinuxError, LinuxResult};
@@ -170,4 +170,12 @@ pub fn sys_sendfile(
         do_sendfile(|buf| src.read(buf), dest.as_ref())
     }
     .map(|n| n as _)
+}
+
+pub fn sys_renameat2(_old_dirfd: i32, old_path: UserConstPtr<c_char>, _new_dirfd: i32, new_path: UserConstPtr<c_char>, _flags: usize) -> LinuxResult<isize> {
+    let old_path = old_path.get_as_str()?;
+    let new_path = new_path.get_as_str()?;
+    debug!("sys_renameat2 <= old: {:?}, new: {:?}", old_path, new_path);
+    axfs::api::rename(old_path, new_path)?;
+    Ok(0)
 }

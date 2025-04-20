@@ -104,6 +104,8 @@ fn handle_syscall(tf: &mut TrapFrame, syscall_num: usize) -> isize {
         #[cfg(target_arch = "x86_64")]
         Sysno::stat => sys_stat(tf.arg0().into(), tf.arg1().into()),
         Sysno::fstat => sys_fstat(tf.arg0() as _, tf.arg1().into()),
+        #[cfg(target_arch = "x86_64")]
+        Sysno::lstat => sys_lstat(tf.arg0().into(), tf.arg1().into()),
         Sysno::mount => sys_mount(
             tf.arg0().into(),
             tf.arg1().into(),
@@ -204,6 +206,14 @@ fn handle_syscall(tf: &mut TrapFrame, syscall_num: usize) -> isize {
         Sysno::listen => sys_listen(tf.arg0() as _, tf.arg1() as _),
         Sysno::accept => sys_accept(tf.arg0() as _, tf.arg1() as _, tf.arg2() as _),
         Sysno::connect => sys_connect(tf.arg0() as _, tf.arg1() as _, tf.arg2() as _),
+        Sysno::renameat2 => sys_renameat2(
+            tf.arg0() as _,
+            tf.arg1().into(),
+            tf.arg2() as _,
+            tf.arg3().into(),
+            tf.arg4() as _,
+        ),
+        Sysno::syslog => Ok(0),
         sysno => {
             warn!("Unimplemented syscall: {}", sysno);
             Err(LinuxError::ENOSYS)
